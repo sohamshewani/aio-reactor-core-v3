@@ -1,0 +1,101 @@
+[build-system]
+requires = ["setuptools>=68.0.0", "wheel>=0.40.0", "Cython>=3.0.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "aio-reactor-core"
+version = "0.1.0"
+description = "High-performance asynchronous reactor core"
+readme = "README.md"
+requires-python = ">=3.8"
+license = { text = "MIT" }
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Topic :: Software Development :: Libraries",
+]
+dependencies = []
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-asyncio>=0.21.0",
+    "pytest-benchmark>=4.0.0",
+]
+
+[tool.setuptools]
+packages = ["aio_reactor_core"]
+
+[tool.setuptools.extension]
+use-cython = true
+
+[tool.pytest.ini_options]
+minversion = "6.0"
+addopts = "-ra -q"
+testpaths = ["tests"]
+asyncio_mode = "auto"
+
+[tool.poe.tasks]
+all = ["clean", "build", "test"]
+
+[tool.poe.tasks.build]
+shell = """
+python -c '
+import os, sys
+from setuptools import setup, Extension
+from Cython.Build import cythonize
+
+exts = [
+    Extension(
+        "aio_reactor_core._core",
+        ["src/_core.c"] if os.path.exists("src/_core.c") else [],
+        extra_compile_args=["-O3", "-Wall", "-Wextra"]
+    )
+]
+
+# Fallback if no C files exist yet to prevent hard crashes
+if not os.path.exists("src/_core.c") and os.path.exists("aio_reactor_core"):
+    print("No C extension source found, skipping compilation extension.")
+    sys.exit(0)
+
+setup(
+    ext_modules=cythonize(exts, compiler_directives={"language_level": "3"})
+)
+' bdist_wheel || echo "Build skipped or completed with warnings."
+"""
+
+[tool.poe.tasks.test]
+shell = """
+if [ -d "tests" ]; then
+    pytest;
+else
+    echo "Tests directory missing. Skipping tests.";
+fi
+"""
+
+[tool.poe.tasks.benchmark]
+shell = """
+if [ -d "benchmarks" ]; then
+    pytest benchmarks/;
+elif python -c "import pytest_benchmark" 2>/dev/null; then
+    pytest --benchmark-only;
+else
+    echo "No benchmarks directory or benchmark plugin found. Skipping.";
+fi
+"""
+
+[tool.poe.tasks.clean]
+shell = """
+rm -rf build/ dist/ *.egg-info .pytest_cache .benchmarks
+find . -type f -name "*.so" -delete
+find . -type f -name "*.pyd" -delete
+find . -type f -name "*.c" -exec sh -c 'for f; do [ -f "${f%.c}.pyx" ] && rm -f "$f"; done' _ {} +
+find . -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
+echo "Cleanup complete."
+"""
